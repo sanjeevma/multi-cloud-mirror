@@ -1,314 +1,299 @@
-#!/bin/bash
-# mirror.sh - Multi-cloud container image mirroring
+# Multi-Cloud Mirror
 
-set -euo pipefail
+Multi-cloud container image mirroring tool in bash that synchronizes Docker images across AWS ECR, Google Artifact Registry (GAR), Azure Container Registry (ACR), JFrog Artifactory, and DigitalOcean Container Registry (DOCR).
 
-# Script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+## Features
 
-# Load configuration
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
-   source "$SCRIPT_DIR/.env"
-elif [[ -f "$SCRIPT_DIR/config/regions.conf" ]]; then
-   source "$SCRIPT_DIR/config/regions.conf"
-fi
+- 🌐 **Multi-cloud support**: AWS, Google Cloud, Azure, JFrog, DigitalOcean
+- 🔄 **Bulk mirroring** from configuration files
+- 🌍 **Multi-region deployment** support
+- 🤖 **Automated repository creation**
+- 🔐 **Platform-specific authentication**
+- ⚡ **Parallel processing** with configurable concurrency
+- 🔁 **Retry logic** with exponential backoff
+- 📊 **Detailed logging** and progress tracking
 
-# Load library functions
-source "$SCRIPT_DIR/lib/ecr.sh"
-source "$SCRIPT_DIR/lib/gar.sh"
-source "$SCRIPT_DIR/lib/acr.sh"
-source "$SCRIPT_DIR/lib/jfrog.sh"
-source "$SCRIPT_DIR/lib/docr.sh"
+## Quick Start
 
-# Default values
-MAX_PARALLEL_JOBS="${MAX_PARALLEL_JOBS:-3}"
-MAX_RETRIES="${MAX_RETRIES:-3}"
-RETRY_DELAY="${RETRY_DELAY:-5}"
-TARGET_PLATFORM="${TARGET_PLATFORM:-linux/amd64}"
-DEBUG="${DEBUG:-0}"
+```bash
+# 1. Clone and setup
+git clone https://github.com/sanjeevma/multi-cloud-mirror.git
+cd multi-cloud-mirror
+./scripts/setup.sh
 
-# Color codes
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# 2. Configure credentials
+cp .env.example .env
+# Edit .env with your credentials
 
-# Logging functions
-log_info() {
-   echo -e "${BLUE}[INFO]${NC} $1"
-}
+# 3. Validate setup
+./scripts/validate.sh
 
-log_success() {
-   echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
+# 4. Run mirroring
+./mirror.sh
+```
 
-log_warning() {
-   echo -e "${YELLOW}[WARNING]${NC} $1"
-}
+## File Structure
 
-log_error() {
-   echo -e "${RED}[ERROR]${NC} $1"
-}
+```
+multi-cloud-mirror/
+├── README.md                 # This file
+├── mirror.sh                 # Main orchestration script
+├── lib/                      # Registry-specific functions
+│   ├── ecr.sh               # AWS ECR functions
+│   ├── gar.sh               # Google GAR functions
+│   ├── acr.sh               # Azure ACR functions
+│   ├── jfrog.sh             # JFrog functions
+│   └── docr.sh              # DigitalOcean functions
+├── config/                   # Configuration files
+│   ├── example-list.txt     # Image list template
+│   └── regions.conf         # Regional configuration
+├── scripts/                  # Utility scripts
+│   ├── setup.sh             # Environment setup
+│   └── validate.sh          # Pre-flight validation
+├── docs/                     # Documentation
+│   ├── USAGE.md             # Detailed usage guide
+│   └── TROUBLESHOOTING.md   # Common issues and solutions
+└── .env.example             # Environment variables template
+```
 
-debug_log() {
-   [[ "$DEBUG" == "1" ]] && echo -e "${YELLOW}[DEBUG]${NC} $1"
-}
+## Prerequisites
 
-# Show usage
-usage() {
-   cat << EOF
-Usage: $0 [OPTIONS]
+- **Required Tools**: `crane`, `aws`, `gcloud`, `az`, `doctl`
+- **Operating System**: Linux, macOS, WSL2
+- **Permissions**: Registry access for target cloud providers
 
-Multi-cloud container image mirroring tool
+## Configuration
 
-OPTIONS:
-   -f, --file FILE          Image list file (default: config/example-list.txt)
-   -j, --jobs N            Max parallel jobs (default: $MAX_PARALLEL_JOBS)
-   -r, --retries N         Max retries per image (default: $MAX_RETRIES)
-   -p, --platform PLATFORM Target platform (default: $TARGET_PLATFORM)
-   -d, --debug             Enable debug output
-   -v, --validate          Run validation only
-   -h, --help              Show this help
+### Environment Variables
 
-EXAMPLES:
-   $0                                          # Mirror using default config
-   $0 -f custom-list.txt -j 5                 # Custom file, 5 parallel jobs
-   $0 --validate                              # Validate setup only
-   $0 -d -r 5                                 # Debug mode, 5 retries
+Copy `.env.example` to `.env` and configure:
 
-EOF
-}
+```bash
+# AWS ECR
+ECR_MIRROR_AWS_REGIONS="us-east-1,us-west-2,eu-west-1"
 
-# Parse command line arguments
-parse_args() {
-   IMAGE_LIST_FILE="$SCRIPT_DIR/config/example-list.txt"
-   VALIDATE_ONLY=0
+# Google GAR
+GCP_PROJECT_ID="your-project-id"
+GCR_GCP_REGIONS="us-central1,europe-west1"
 
-   while [[ $# -gt 0 ]]; do
-       case $1 in
-           -f|--file)
-               IMAGE_LIST_FILE="$2"
-               shift 2
-               ;;
-           -j|--jobs)
-               MAX_PARALLEL_JOBS="$2"
-               shift 2
-               ;;
-           -r|--retries)
-               MAX_RETRIES="$2"
-               shift 2
-               ;;
-           -p|--platform)
-               TARGET_PLATFORM="$2"
-               shift 2
-               ;;
-           -d|--debug)
-               DEBUG=1
-               shift
-               ;;
-           -v|--validate)
-               VALIDATE_ONLY=1
-               shift
-               ;;
-           -h|--help)
-               usage
-               exit 0
-               ;;
-           *)
-               log_error "Unknown option: $1"
-               usage
-               exit 1
-               ;;
-       esac
-   done
-}
+# Azure ACR
+AZURE_RESOURCE_GROUP="container-registries-rg"
+ACR_AZURE_REGIONS="eastus,westus2"
 
-# Validate prerequisites
-validate_setup() {
-   log_info "Validating setup..."
+# JFrog Artifactory
+JFROG_URL="https://yourcompany.jfrog.io"
+JFROG_USER="username"
+JFROG_TOKEN="api-token"
 
-   if ! command -v crane >/dev/null 2>&1; then
-       log_error "crane tool not found. Run ./scripts/setup.sh"
-       exit 1
-   fi
+# DigitalOcean
+DOCR_TOKEN="your-do-token"
+DOCR_REGISTRY_NAME="your-registry"
+```
 
-   if [[ ! -f "$IMAGE_LIST_FILE" ]]; then
-       log_error "Image list file not found: $IMAGE_LIST_FILE"
-       exit 1
-   fi
+### Image List Format
 
-   log_success "Basic validation passed"
-}
+Edit `config/example-list.txt`:
 
-# Authenticate to all registries
-authenticate_all() {
-   log_info "Authenticating to registries..."
+```
+# Format: DESTINATIONS SOURCE_IMAGE
+# Destinations: ECR,GAR,ACR,JFROG,DOCR (comma-separated)
 
-   # AWS ECR
-   if [[ "${ECR_MIRROR_AWS_REGIONS:-}" ]]; then
-       authenticate_ecr || log_warning "ECR authentication failed"
-   fi
+ECR,GAR,ACR docker.io/nginx:1.25-alpine
+ECR,GAR,ACR docker.io/redis:7.2-alpine
+JFROG,ECR docker.io/postgres:15-alpine
+DOCR,GAR docker.io/node:18-alpine
+ECR,GAR,ACR,JFROG,DOCR docker.io/busybox:latest
+```
 
-   # Google GAR
-   if [[ "${GCR_GCP_REGIONS:-}" ]]; then
-       authenticate_gar || log_warning "GAR authentication failed"
-   fi
+## Usage
 
-   # Azure ACR
-   if [[ "${ACR_AZURE_REGIONS:-}" ]]; then
-       authenticate_acr || log_warning "ACR authentication failed"
-   fi
+### Basic Usage
 
-   # JFrog
-   if [[ "${JFROG_URL:-}" ]]; then
-       authenticate_jfrog || log_warning "JFrog authentication failed"
-   fi
+```bash
+# Mirror all images using default configuration
+./mirror.sh
 
-   # DigitalOcean
-   if [[ "${DOCR_TOKEN:-}" ]]; then
-       authenticate_docr || log_warning "DigitalOcean authentication failed"
-   fi
+# Use custom image list
+./mirror.sh -f my-images.txt
 
-   log_success "Authentication complete"
-}
+# Run with 5 parallel jobs
+./mirror.sh -j 5
 
-# Mirror single image with retry logic
-mirror_image_with_retry() {
-   local dest="$1"
-   local source="$2"
-   local attempt=1
+# Enable debug mode
+./mirror.sh -d
+```
 
-   while [[ $attempt -le $MAX_RETRIES ]]; do
-       debug_log "Attempt $attempt/$MAX_RETRIES for $source"
+### Advanced Usage
 
-       IFS=',' read -ra TARGETS <<< "$dest"
-       local success=true
+```bash
+# Validate setup only
+./mirror.sh --validate
 
-       for target in "${TARGETS[@]}"; do
-           case "$target" in
-               ECR)
-                   if ! push_to_ecr "$source"; then
-                       success=false
-                   fi
-                   ;;
-               GAR)
-                   if ! push_to_gar "$source"; then
-                       success=false
-                   fi
-                   ;;
-               ACR)
-                   if ! push_to_acr "$source"; then
-                       success=false
-                   fi
-                   ;;
-               JFROG)
-                   if ! push_to_jfrog "$source"; then
-                       success=false
-                   fi
-                   ;;
-               DOCR)
-                   if ! push_to_docr "$source"; then
-                       success=false
-                   fi
-                   ;;
-               *)
-                   log_error "Unknown target: $target"
-                   success=false
-                   ;;
-           esac
-       done
+# Custom platform and retries
+./mirror.sh -p linux/arm64 -r 5
 
-       if $success; then
-           log_success "Mirrored: $source"
-           return 0
-       else
-           log_warning "Attempt $attempt failed for $source, retrying in ${RETRY_DELAY}s..."
-           sleep "$RETRY_DELAY"
-           ((attempt++))
-       fi
-   done
+# Full example
+./mirror.sh -f prod-images.txt -j 10 -r 3 -d
+```
 
-   log_error "Failed to mirror after $MAX_RETRIES attempts: $source"
-   return 1
-}
+### Command Line Options
 
-# Process image list
-process_images() {
-   log_info "Processing image list: $IMAGE_LIST_FILE"
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-f, --file` | Image list file | `config/example-list.txt` |
+| `-j, --jobs` | Max parallel jobs | `3` |
+| `-r, --retries` | Max retries per image | `3` |
+| `-p, --platform` | Target platform | `linux/amd64` |
+| `-d, --debug` | Enable debug output | `false` |
+| `-v, --validate` | Run validation only | `false` |
+| `-h, --help` | Show help message | - |
 
-   local total_images=0
-   local successful_images=0
-   local failed_images=0
+## Authentication
 
-   # Count total images
-   total_images=$(grep -v '^#\|^$\|^--' "$IMAGE_LIST_FILE" | wc -l)
-   log_info "Total images to mirror: $total_images"
+### AWS ECR
+```bash
+aws configure
+# OR set environment variables:
+export AWS_ACCESS_KEY_ID="your-key"
+export AWS_SECRET_ACCESS_KEY="your-secret"
+```
 
-   # Process each line
-   while IFS= read -r line; do
-       DEST=$(echo "$line" | awk '{print $1}')
-       SOURCE=$(echo "$line" | awk '{print $2}')
+### Google GAR
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+```
 
-       # Skip comments and empty lines
-       [[ -z "$SOURCE" || "$SOURCE" =~ ^# || "$SOURCE" =~ ^-+ ]] && continue
+### Azure ACR
+```bash
+az login
+# OR use service principal:
+az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+```
 
-       # Validate destination
-       if [[ "$DEST" != *"ECR"* && "$DEST" != *"GAR"* && "$DEST" != *"ACR"* && "$DEST" != *"JFROG"* && "$DEST" != *"DOCR"* ]]; then
-           log_warning "Invalid destination '$DEST' for $SOURCE, skipping..."
-           continue
-       fi
+### JFrog Artifactory
+```bash
+export JFROG_USER="your-username"
+export JFROG_TOKEN="your-api-token"
+```
 
-       log_info "Processing: $SOURCE -> $DEST"
+### DigitalOcean
+```bash
+export DOCR_TOKEN="your-digitalocean-token"
+```
 
-       if mirror_image_with_retry "$DEST" "$SOURCE"; then
-           ((successful_images++))
-       else
-           ((failed_images++))
-       fi
+## Registry Support
 
-   done < "$IMAGE_LIST_FILE"
+| Registry | Provider | Features |
+|----------|----------|----------|
+| **ECR** | AWS | Auto-create repos, vulnerability scanning |
+| **GAR** | Google Cloud | Multi-format artifacts, regional deployment |
+| **ACR** | Azure | Geo-replication, content trust |
+| **JFrog** | Artifactory | Enterprise features, metadata |
+| **DOCR** | DigitalOcean | Simple setup, cost-effective |
 
-   # Summary
-   echo ""
-   log_info "Mirroring Summary"
-   log_info "================="
-   log_success "Successful: $successful_images"
-   if [[ $failed_images -gt 0 ]]; then
-       log_error "Failed: $failed_images"
-   else
-       log_success "Failed: $failed_images"
-   fi
-   log_info "Total: $total_images"
-}
+## Examples
 
-# Signal handlers
-cleanup() {
-   log_info "Cleaning up..."
-   # Kill any background jobs
-   jobs -p | xargs -r kill 2>/dev/null || true
-   exit 130
-}
+### Mirror Kubernetes Images
+```bash
+# config/k8s-images.txt
+ECR,GAR,ACR k8s.gcr.io/pause:3.9
+ECR,GAR,ACR registry.k8s.io/coredns/coredns:v1.10.1
+ECR,GAR,ACR registry.k8s.io/etcd:3.5.9-0
 
-trap cleanup INT TERM
+./mirror.sh -f config/k8s-images.txt
+```
 
-# Main function
-main() {
-   echo "🚀 Multi-Cloud Container Mirror"
-   echo "==============================="
+### Development Workflow
+```bash
+# 1. Validate configuration
+./scripts/validate.sh
 
-   parse_args "$@"
+# 2. Test with single image
+echo "ECR docker.io/hello-world:latest" > test.txt
+./mirror.sh -f test.txt -d
 
-   if [[ $VALIDATE_ONLY -eq 1 ]]; then
-       exec "$SCRIPT_DIR/scripts/validate.sh"
-   fi
+# 3. Run full mirror
+./mirror.sh -j 5
+```
 
-   validate_setup
-   authenticate_all
-   process_images
+## Troubleshooting
 
-   log_success "Multi-cloud mirroring complete!"
-}
+### Common Issues
 
-# Run main function
-main "$@"
+**Authentication Failures**
+```bash
+# Check credentials
+./scripts/validate.sh
+
+# Re-authenticate
+aws configure
+gcloud auth login
+az login
+```
+
+**Network Timeouts**
+```bash
+# Reduce parallel jobs
+./mirror.sh -j 1 -r 5
+
+# Check crane connectivity
+crane ls docker.io/library/nginx
+```
+
+**Registry Quota Issues**
+- Check registry storage limits
+- Clean up old images
+- Consider using different regions
+
+### Debug Mode
+
+```bash
+# Enable verbose logging
+./mirror.sh -d
+
+# Check specific registry
+DEBUG=1 source lib/ecr.sh && push_to_ecr docker.io/nginx:alpine
+```
+
+## Performance Tips
+
+- **Parallel Jobs**: Start with 3, increase based on network/CPU
+- **Regional Strategy**: Mirror to closest regions first
+- **Image Size**: Prioritize smaller base images
+- **Network**: Use instances with good bandwidth for faster transfers
+
+## Security Considerations
+
+- Store credentials in `.env` (never commit to git)
+- Use service accounts with minimal required permissions
+- Enable vulnerability scanning in target registries
+- Regularly rotate access tokens and keys
+- Consider using registry webhooks for automated mirroring
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new registry support
+4. Update documentation
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Support
+
+- **Documentation**: See `docs/` directory
+- **Issues**: GitHub Issues
+- **Discussions**: GitHub Discussions
+
+## Roadmap
+
+- [ ] Harbor registry support
+- [ ] GitLab Container Registry support
+- [ ] Helm chart mirroring
+- [ ] Web UI for configuration
+- [ ] Prometheus metrics export
+- [ ] Webhook-based triggering
