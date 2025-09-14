@@ -1,6 +1,7 @@
 # Multi-Cloud Mirror
 
 Multi-cloud container image mirroring tool in bash that synchronizes Docker images across AWS ECR, Google Artifact Registry (GAR), Azure Container Registry (ACR), JFrog Artifactory, and DigitalOcean Container Registry (DOCR).
+Its a all in one solution
 
 ## Features
 

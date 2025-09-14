@@ -1,0 +1,36 @@
+# config/example-list.txt
+# Format: DESTINATIONS SOURCE_IMAGE
+# Destinations: ECR,GAR,ACR,JFROG,DOCR (comma-separated)
+# Lines starting with # are comments
+
+# Core Infrastructure Images
+ECR,GAR,ACR docker.io/nginx:1.25-alpine
+ECR,GAR,ACR docker.io/redis:7.2-alpine
+ECR,GAR,ACR docker.io/postgres:15-alpine
+ECR,GAR,ACR docker.io/mysql:8.0
+
+# Kubernetes System Images
+ECR,GAR,ACR,DOCR k8s.gcr.io/pause:3.9
+ECR,GAR,ACR registry.k8s.io/coredns/coredns:v1.10.1
+ECR,GAR,ACR registry.k8s.io/etcd:3.5.9-0
+
+# Monitoring & Logging
+ECR,GAR,ACR docker.io/prom/prometheus:v2.45.0
+ECR,GAR,ACR docker.io/grafana/grafana:10.0.0
+ECR,GAR,ACR docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+
+# Application Runtime Images
+ECR,GAR,ACR,JFROG docker.io/node:18-alpine
+ECR,GAR,ACR,JFROG docker.io/python:3.11-slim
+ECR,GAR,ACR,JFROG docker.io/openjdk:17-jre-slim
+
+# Security & Compliance (JFrog for enterprise)
+JFROG,ECR,GAR docker.io/aquasec/trivy:latest
+JFROG,ECR,GAR docker.io/falcosecurity/falco:latest
+
+# Development Tools (DigitalOcean for dev environments)
+DOCR,ECR docker.io/hashicorp/terraform:1.5.0
+DOCR,ECR docker.io/alpine/git:latest
+
+# Multi-destination example
+ECR,GAR,ACR,JFROG,DOCR docker.io/busybox:1.36-uclibc
